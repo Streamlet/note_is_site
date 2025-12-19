@@ -2,7 +2,6 @@ name: autobuild
 
 on:
   push:
-  pull_request:
   release:
     types: published
 
@@ -14,21 +13,48 @@ jobs:
     steps:
 
     - name: Set up Go 
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5.3.0
 
     - name: Check out code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4.2.2
+
+    - name: Shorten SHA
+      uses: benjlevesque/short-sha@v3.0
+
+    - name: Setup current date time
+      run: echo "DATETIME=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
+
+    - name: Setup package name
+      if: github.ref_type != 'tag'
+      run: echo "PACKAGE=note_is_site_${{ env.DATETIME }}_${{ env.SHA }}" >> $GITHUB_ENV
+
+    - name: Setup package name
+      if: github.ref_type == 'tag'
+      run: echo "PACKAGE=note_is_site_${{ github.ref_name }}_${{ env.SHA }}" >> $GITHUB_ENV
 
     - name: Build
       run: CGO_ENABLED=0 go build -v .
 
     - name: Make package
-      run: tar -zcvf NoteIsSite.tar.gz NoteIsSite
+      run: |
+        tar -zcvf ${{ env.PACKAGE }}.tar.gz NoteIsSite
+        echo ${{ env.PACKAGE }}.tar.gz > last_build
 
     - name: Upload Release on push tag
-      if: startsWith(github.ref, 'refs/tags/v')
-      uses: svenstaro/upload-release-action@v2
+      if: github.ref_type == 'tag'
+      uses: JasonEtco/upload-to-release@master
       with:
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: NoteIsSite.tar.gz
-        asset_name: NoteIsSite_${{ github.ref_name }}.tar.gz
+        args: ${{ env.PACKAGE }}.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload to oss
+      uses: tvrcgo/oss-action@v1.0.0
+      with:
+        key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+        key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        endpoint: ${{ vars.OSS_END_POINT }}
+        bucket: ${{ vars.OSS_BUCKET }}
+        assets: |
+          ${{ env.PACKAGE }}.tar.gz:${{ vars.OSS_RELEASE_DIR }}/${{ env.PACKAGE }}.tar.gz
+          last_build:${{ vars.OSS_RELEASE_DIR }}/last_build
